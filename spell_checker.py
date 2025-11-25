@@ -41,20 +41,20 @@ def get_correction_candidates(sent):
 def main():
     path = 'data/example.csv'
     df = pd.read_csv(path)[:25]
-    
+
     # Add progress counter
     total_rows = len(df)
     print(f"Processing {total_rows} rows...")
-    
+
     results = []
     for idx, row in df.iterrows():
         # Show progress
         if idx % 10 == 0 or idx == total_rows - 1:
             print(f"Processing row {idx + 1}/{total_rows}...")
-            
+
         result = get_correction_candidates(row['Хакасский'])
         results.append(result)
-    
+
     df['misspelled_correction_candidates'] = results
     output_path = 'data/example_with_misspelled_correction_candidates.csv'
     df.to_csv(output_path, index=False)
