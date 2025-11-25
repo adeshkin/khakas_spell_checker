@@ -1,0 +1,1 @@
+# khakas_spell_checker
