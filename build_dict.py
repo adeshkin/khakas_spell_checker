@@ -5,10 +5,10 @@ from collections import Counter
 import re
 import os
 
-WORD_REGEX = r'\b[абвгдежзийклмнопрстуфхцчшщъыьэюяёіғңҷӧӱ-]+\b'
-KHAKAS_LETTERS = "абвгдежзийклмнопрстуфхцчшщъыьэюяёіғңҷӧӱ"
+KHAKAS_LETTERS_AND_HYPHEN = "абвгдежзийклмнопрстуфхцчшщъыьэюяёіғңҷӧӱ-"
 KHAKAS_VOWELS = "аеиоуыэюяёіӧӱ"
-MINIMUM_FREQUENCY = 50
+WORD_REGEX = r'\b[абвгдежзийклмнопрстуфхцчшщъыьэюяёіғңҷӧӱ-]{2,}\b'  # слова от 2-х букв
+MINIMUM_FREQUENCY = 10
 
 
 def export_word_frequency(filepath, word_frequency):
@@ -34,9 +34,45 @@ def build_word_frequency_custom(filepath, output_path):
     return word_frequency
 
 
-def clean_khakas(word_frequency, exclude_filepaths=None, include_filepaths=None):
+def include_exclude_words(word_frequency, include_filepaths=None, exclude_filepaths=None):
+    # remove flagged misspellings
+    if exclude_filepaths:
+        for exclude_filepath in exclude_filepaths:
+            if os.path.exists(exclude_filepath):
+                with open(exclude_filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        exclude_words = re.findall(WORD_REGEX, line.lower())
+                        for exclude_word in exclude_words:
+                            if exclude_word in word_frequency:
+                                word_frequency.pop(exclude_word)
+
+    # Add known missing words back in
+    if include_filepaths:
+        for include_filepath in include_filepaths:
+            if os.path.exists(include_filepath):
+                with open(include_filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        include_words = re.findall(WORD_REGEX, line.lower())
+                        for include_word in include_words:
+                            if include_word in word_frequency:
+                                word_frequency[include_word] = max(MINIMUM_FREQUENCY, word_frequency[include_word])
+                            else:
+                                word_frequency[include_word] = MINIMUM_FREQUENCY
+
+    return word_frequency
+
+
+def clean_khakas(word_frequency):
     # based on `clean_russian` https://github.com/barrust/pyspellchecker/blob/5de51fc22ceba53eacfcaf386e5c08057f461236/scripts/build_dictionary.py#L666
-    letters = set(KHAKAS_LETTERS)
+
+    letters = set(KHAKAS_LETTERS_AND_HYPHEN)
+
+    no_valid_words = list()
+    for key in word_frequency:
+        if key[0] == '-' or key[-1] == '-':
+            no_valid_words.append(key)
+    for misfit in no_valid_words:
+        word_frequency.pop(misfit)
 
     # remove words with invalid characters
     invalid_chars = list()
@@ -60,34 +96,10 @@ def clean_khakas(word_frequency, exclude_filepaths=None, include_filepaths=None)
     # remove small numbers
     small_frequency = list()
     for key in word_frequency:
-        if word_frequency[key] <= MINIMUM_FREQUENCY:
+        if word_frequency[key] < MINIMUM_FREQUENCY:
             small_frequency.append(key)
     for misfit in small_frequency:
         word_frequency.pop(misfit)
-
-    # remove flagged misspellings
-    if exclude_filepaths:
-        for exclude_filepath in exclude_filepaths:
-            if os.path.exists(exclude_filepath):
-                with open(exclude_filepath, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        exclude_words = re.findall(WORD_REGEX, line.lower())
-                        for exclude_word in exclude_words:
-                            if exclude_word in word_frequency:
-                                word_frequency.pop(exclude_word)
-
-    # Add known missing words back in
-    if include_filepaths:
-        for include_filepath in include_filepaths:
-            if os.path.exists(include_filepath):
-                with open(include_filepath, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        include_words = re.findall(WORD_REGEX, line.lower())
-                        for include_word in include_words:
-                            if include_word in word_frequency:
-                                print("{} is already found in the dictionary! Skipping!".format(include_word))
-                            else:
-                                word_frequency[include_word] = MINIMUM_FREQUENCY
 
     return word_frequency
 
@@ -102,27 +114,31 @@ def export_misfit_words(misfit_filepath, word_freq_filepath, word_frequency):
     misfitted_words = source_words.difference(final_words)
     misfitted_words = sorted(list(misfitted_words))
 
-    with open(misfit_filepath, "w", encoding='utf-8') as file:
-        for word in misfitted_words:
-            file.write(word)
-            file.write("\n")
+    misfitted_word_frequency = Counter({word: source_word_frequency[word] for word in misfitted_words})
+    print('Число слов, не попавших в словарь :', len(misfitted_word_frequency))
+    print('Топ 10 слов, не попавших в словарь :', misfitted_word_frequency.most_common(10))
+    export_word_frequency(misfit_filepath, misfitted_word_frequency)
 
 
 def main():
     json_full_path = './data/khakas_uchebniki_word_dict_frequency_full.json'
     json_path = './data/khakas_uchebniki_word_dict_frequency.json'
     file_path = './data/khakas_uchebniki.txt'
-    misfit_filepath = './data/khakas_uchebniki_misfit.txt'
+    misfit_filepath = './data/khakas_uchebniki_word_dict_frequency_misfit.json'
     include_filepaths = ['./data/khakas_defis_words_custom.txt',
                          './data/khakas_defis_words_dict_hrs_new34.txt']
     word_frequency = build_word_frequency_custom(file_path, json_full_path)
-    word_frequency = clean_khakas(word_frequency, include_filepaths=include_filepaths)
+    word_frequency = include_exclude_words(word_frequency, include_filepaths=include_filepaths)
+    word_frequency = clean_khakas(word_frequency)
+
+    print('Число слов в словаре :', len(word_frequency))
+    print('Топ 10 частых слово :', word_frequency.most_common(10))
+    print('\n\n')
+
     export_word_frequency(json_path, word_frequency)
 
     if misfit_filepath:
         export_misfit_words(misfit_filepath, json_full_path, word_frequency)
-
-
 
 
 if __name__ == '__main__':
