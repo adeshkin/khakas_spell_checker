@@ -18,7 +18,7 @@ def export_word_frequency(filepath, word_frequency):
         filepath (str):
         word_frequency (Counter):
     """
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding='utf-8') as f:
         json.dump(word_frequency, f, indent="", sort_keys=True, ensure_ascii=False)
 
 
@@ -34,7 +34,7 @@ def build_word_frequency_custom(filepath, output_path):
     return word_frequency
 
 
-def clean_khakas(word_frequency, filepath_exclude=None, filepath_include=None):
+def clean_khakas(word_frequency, exclude_filepaths=None, include_filepaths=None):
     # based on `clean_russian` https://github.com/barrust/pyspellchecker/blob/5de51fc22ceba53eacfcaf386e5c08057f461236/scripts/build_dictionary.py#L666
     letters = set(KHAKAS_LETTERS)
 
@@ -66,30 +66,63 @@ def clean_khakas(word_frequency, filepath_exclude=None, filepath_include=None):
         word_frequency.pop(misfit)
 
     # remove flagged misspellings
-    if os.path.exists(filepath_exclude):
-        with open(filepath_exclude, 'r', encoding='utf-8') as f:
-            for line in f:
-                exclude_words = re.findall(WORD_REGEX, line.lower())
-                for exclude_word in exclude_words:
-                    if exclude_word in word_frequency:
-                        word_frequency.pop(exclude_word)
+    if exclude_filepaths:
+        for exclude_filepath in exclude_filepaths:
+            if os.path.exists(exclude_filepath):
+                with open(exclude_filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        exclude_words = re.findall(WORD_REGEX, line.lower())
+                        for exclude_word in exclude_words:
+                            if exclude_word in word_frequency:
+                                word_frequency.pop(exclude_word)
 
     # Add known missing words back in
-    if os.path.exists(filepath_include):
-        with open(filepath_exclude, 'r', encoding='utf-8') as f:
-            for line in f:
-                include_words = re.findall(WORD_REGEX, line.lower())
-                for include_word in include_words:
-                    if include_word in word_frequency:
-                        print("{} is already found in the dictionary! Skipping!".format(include_word))
-                    else:
-                        word_frequency[include_word] = MINIMUM_FREQUENCY
+    if include_filepaths:
+        for include_filepath in include_filepaths:
+            if os.path.exists(include_filepath):
+                with open(include_filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        include_words = re.findall(WORD_REGEX, line.lower())
+                        for include_word in include_words:
+                            if include_word in word_frequency:
+                                print("{} is already found in the dictionary! Skipping!".format(include_word))
+                            else:
+                                word_frequency[include_word] = MINIMUM_FREQUENCY
 
     return word_frequency
 
 
+def export_misfit_words(misfit_filepath, word_freq_filepath, word_frequency):
+    with open(word_freq_filepath, 'r', encoding='utf-8') as f:
+        source_word_frequency = json.load(f)
+
+    source_words = set(source_word_frequency.keys())
+    final_words = set(word_frequency.keys())
+
+    misfitted_words = source_words.difference(final_words)
+    misfitted_words = sorted(list(misfitted_words))
+
+    with open(misfit_filepath, "w", encoding='utf-8') as file:
+        for word in misfitted_words:
+            file.write(word)
+            file.write("\n")
+
+
 def main():
-    pass
+    json_full_path = './data/khakas_uchebniki_word_dict_frequency_full.json'
+    json_path = './data/khakas_uchebniki_word_dict_frequency.json'
+    file_path = './data/khakas_uchebniki.txt'
+    misfit_filepath = './data/khakas_uchebniki_misfit.txt'
+    include_filepaths = ['./data/khakas_defis_words_custom.txt',
+                         './data/khakas_defis_words_dict_hrs_new34.txt']
+    word_frequency = build_word_frequency_custom(file_path, json_full_path)
+    word_frequency = clean_khakas(word_frequency, include_filepaths=include_filepaths)
+    export_word_frequency(json_path, word_frequency)
+
+    if misfit_filepath:
+        export_misfit_words(misfit_filepath, json_full_path, word_frequency)
+
+
 
 
 if __name__ == '__main__':
